@@ -8,6 +8,8 @@ import { computeReady } from "../orchestrator/dag";
 import { decompose } from "../orchestrator/decompose";
 import { decideDone } from "../orchestrator/done";
 import { integrateRun } from "../orchestrator/integrate";
+import { routeTasks } from "../orchestrator/route";
+import { summarizeTasks } from "../orchestrator/summarize";
 import { BudgetManager } from "../supervisor/budget";
 import { MagnesiumError } from "../util/errors";
 import { slugify, uuid } from "../util/ids";
@@ -214,9 +216,42 @@ export class MagnesiumEngine {
     });
     budget.record(costUsd);
 
+    // Router-driven triage. Resilient: a missing or failed route falls back to
+    // the raw decomposition so planning never hard-depends on the router.
+    let planned = dag.tasks;
+    try {
+      const routed = await routeTasks(this.client, this.config, dag.tasks);
+      this.ledger.recordLlmCall({
+        runId: run.id,
+        purpose: "route",
+        model: routed.model,
+        inputTokens: routed.usage.inputTokens,
+        outputTokens: routed.usage.outputTokens,
+        cacheReadTokens: routed.usage.cacheReadTokens,
+        cacheCreationTokens: routed.usage.cacheCreationTokens,
+        costUsd: routed.costUsd,
+      });
+      budget.record(routed.costUsd);
+      const byId = new Map(routed.tasks.map((r) => [r.id, r]));
+      planned = dag.tasks.map((t) => {
+        const r = byId.get(t.id);
+        return r ? { ...t, kind: r.kind, acceptanceCriteria: r.acceptanceCriteria } : t;
+      });
+      this.ledger.appendEvent({
+        runId: run.id,
+        type: "routed",
+        payload: { warnings: routed.tasks.flatMap((r) => r.warnings) },
+      });
+    } catch (err) {
+      this.logger.warn(
+        { err: (err as Error).message },
+        "router triage failed; using raw decomposition",
+      );
+    }
+
     const idMap = new Map<string, string>();
     this.ledger.transaction(() => {
-      for (const t of dag.tasks) {
+      for (const t of planned) {
         const id = uuid();
         idMap.set(t.id, id);
         this.ledger.createTask({
@@ -231,7 +266,7 @@ export class MagnesiumEngine {
           model: t.suggestedModel ?? this.config.models.workerDefault,
         });
       }
-      for (const t of dag.tasks) {
+      for (const t of planned) {
         for (const dep of t.dependsOn) {
           this.ledger.addDep(idMap.get(t.id) as string, idMap.get(dep) as string);
         }
@@ -279,9 +314,14 @@ export class MagnesiumEngine {
     let attemptNo = 0;
     const gate = await runVerificationGate(base, task.maxAttempts, {
       shouldContinue: () => !this.budgetTripped,
+      resumeOnRetry: this.config.worker.resumeOnRetry,
       prepareWorktree: async (attempt) => {
         attemptNo = attempt;
-        await this.workspace.createWorktree(workspaceDir, runId, taskId, task.slug, baseCommit);
+        // Clean re-run by default. With session-resume enabled, keep the
+        // worktree across retries so the resumed session fixes in place.
+        if (attempt === 1 || !this.config.worker.resumeOnRetry) {
+          await this.workspace.createWorktree(workspaceDir, runId, taskId, task.slug, baseCommit);
+        }
         this.ledger.updateTask(taskId, { attempt });
       },
       dispatch: async (wt) => {
@@ -328,6 +368,21 @@ export class MagnesiumEngine {
           payload: { attempt: attemptNo },
         });
         const verdict = await this.verifier.verify(input);
+        // Critic verifications are model-backed; record their cost (Phase 2 gap close).
+        if (verdict.usage && verdict.costUsd !== undefined) {
+          this.ledger.recordLlmCall({
+            runId,
+            taskId,
+            purpose: "critic",
+            model: this.config.models.critic,
+            inputTokens: verdict.usage.inputTokens,
+            outputTokens: verdict.usage.outputTokens,
+            cacheReadTokens: verdict.usage.cacheReadTokens,
+            cacheCreationTokens: verdict.usage.cacheCreationTokens,
+            costUsd: verdict.costUsd,
+          });
+          budget.record(verdict.costUsd);
+        }
         this.ledger.recordArtifact({
           taskId,
           type: input.kind === "code" ? "test_report" : "critic_report",
@@ -420,7 +475,38 @@ export class MagnesiumEngine {
       }
     }
 
-    const digest = compactRun(this.ledger.getRun(runId) as RunRow, this.ledger.listTasks(runId));
+    let digest = compactRun(this.ledger.getRun(runId) as RunRow, this.ledger.listTasks(runId));
+    // LLM context compaction: refine the per-task summaries the done decision
+    // sees. Resilient: any failure leaves the deterministic digest in place.
+    try {
+      const terminal = this.ledger
+        .listTasks(runId)
+        .filter((t) => ["verified", "integrated", "failed", "blocked"].includes(t.status));
+      if (terminal.length > 0) {
+        const sum = await summarizeTasks(this.client, this.config, terminal);
+        if (sum.costUsd > 0) {
+          this.ledger.recordLlmCall({
+            runId,
+            purpose: "compact",
+            model: sum.model,
+            inputTokens: sum.usage.inputTokens,
+            outputTokens: sum.usage.outputTokens,
+            cacheReadTokens: sum.usage.cacheReadTokens,
+            cacheCreationTokens: sum.usage.cacheCreationTokens,
+            costUsd: sum.costUsd,
+          });
+          budget.record(sum.costUsd);
+        }
+        const byId = new Map(sum.summaries.map((s) => [s.id, s.summary]));
+        digest = {
+          ...digest,
+          completed: digest.completed.map((c) => ({ ...c, summary: byId.get(c.id) ?? c.summary })),
+          failed: digest.failed.map((f) => ({ ...f, summary: byId.get(f.id) ?? f.summary })),
+        };
+      }
+    } catch (err) {
+      this.logger.debug({ err: (err as Error).message }, "compaction summarize skipped");
+    }
     let done = !anyFailed && conflicts === 0;
     let reason = done ? "all tasks integrated" : "some tasks failed or conflicted";
     try {

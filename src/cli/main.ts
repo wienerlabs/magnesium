@@ -10,6 +10,9 @@ import { LedgerControlSurface } from "../supervisor/control-surface";
 import { createLogger } from "../logging/logger";
 import { createEngine, openLedger } from "../runtime/bootstrap";
 import type { RunRow } from "../ledger/types";
+import { costReport, formatCostReport } from "../reporting/cost-report";
+import { renderTaskDag } from "../reporting/dag-render";
+import { formatEvents } from "../reporting/event-stream";
 import { shortId, uuid } from "../util/ids";
 
 interface RunOptions {
@@ -136,6 +139,57 @@ function statusCommand(idOrPrefix: string | undefined): void {
   }
 }
 
+function eventsCommand(idOrPrefix: string, opts: { format?: string }): void {
+  const config = loadConfig();
+  const ledger = openLedger(config);
+  try {
+    const runId = resolveRunId(ledger, idOrPrefix);
+    if (!runId) {
+      console.error(`no run matching ${idOrPrefix}`);
+      process.exitCode = 1;
+      return;
+    }
+    const format = opts.format === "json" ? "json" : "plain";
+    console.log(formatEvents(ledger.listEvents(runId), format));
+  } finally {
+    ledger.close();
+  }
+}
+
+function costCommand(idOrPrefix: string): void {
+  const config = loadConfig();
+  const ledger = openLedger(config);
+  try {
+    const runId = resolveRunId(ledger, idOrPrefix);
+    if (!runId) {
+      console.error(`no run matching ${idOrPrefix}`);
+      process.exitCode = 1;
+      return;
+    }
+    const summary = costReport(ledger.listLlmCalls(runId), config.pricing);
+    console.log(formatCostReport(summary));
+  } finally {
+    ledger.close();
+  }
+}
+
+function dagCommand(idOrPrefix: string): void {
+  const config = loadConfig();
+  const ledger = openLedger(config);
+  try {
+    const runId = resolveRunId(ledger, idOrPrefix);
+    if (!runId) {
+      console.error(`no run matching ${idOrPrefix}`);
+      process.exitCode = 1;
+      return;
+    }
+    const rendered = renderTaskDag(ledger.listTasks(runId), ledger.listDeps(runId));
+    console.log(rendered.length > 0 ? rendered : "no tasks yet");
+  } finally {
+    ledger.close();
+  }
+}
+
 async function main(): Promise<void> {
   const program = new Command();
   program
@@ -163,6 +217,25 @@ async function main(): Promise<void> {
     .description("Show runs, or the live DAG for one run")
     .argument("[runId]", "run id or unique prefix")
     .action(statusCommand);
+
+  program
+    .command("events")
+    .description("Show the event stream for a run")
+    .argument("<runId>", "run id or unique prefix")
+    .option("--format <fmt>", "output format: plain or json", "plain")
+    .action(eventsCommand);
+
+  program
+    .command("cost")
+    .description("Cost breakdown per purpose and model for a run")
+    .argument("<runId>", "run id or unique prefix")
+    .action(costCommand);
+
+  program
+    .command("dag")
+    .description("Render the task DAG for a run")
+    .argument("<runId>", "run id or unique prefix")
+    .action(dagCommand);
 
   await program.parseAsync(process.argv);
 }

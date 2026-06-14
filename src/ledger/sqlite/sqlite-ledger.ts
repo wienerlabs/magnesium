@@ -404,6 +404,13 @@ export class SqliteLedger implements LedgerRepository {
     return mapLlmCall(r);
   }
 
+  listLlmCalls(runId: string): LlmCallRow[] {
+    const rows = this.db
+      .prepare("SELECT * FROM llm_calls WHERE run_id = ? ORDER BY created_at ASC")
+      .all(runId) as Raw[];
+    return rows.map(mapLlmCall);
+  }
+
   // --- Checkpoints ---
 
   saveCheckpoint(runId: string, digest: Record<string, unknown>): CheckpointRow {

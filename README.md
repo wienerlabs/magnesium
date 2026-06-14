@@ -67,6 +67,11 @@ pnpm dev status <runId>
 
 # Continue a run after a crash or a budget pause.
 pnpm dev resume <runId>
+
+# Observability.
+pnpm dev events <runId> --format plain   # event stream (plain or json)
+pnpm dev cost <runId>                     # cost breakdown per purpose and model
+pnpm dev dag <runId>                      # render the task DAG
 ```
 
 ### End-to-end demo
@@ -107,7 +112,27 @@ pnpm build       # tsup -> dist/magnesium.js
 
 The unit tests cover orchestrator decomposition, ledger persistence and resume
 (including a kill -9 mid-worker clean re-run), the verification gate, budget
-enforcement, and worker invocation. They run fully offline with stubs.
+enforcement, worker invocation, and all Phase 2 capabilities. They run fully
+offline with stubs.
+
+## Phase 2 capabilities
+
+Built on the Phase 1 vertical slice, all unit-tested offline:
+
+- Telegram control surface (`TelegramControlSurface`, `TelegramConfirmationGate`),
+  transport-abstracted with the grammY adapter isolated. Live `serve` wiring is a
+  Phase 3 daemon item; the core is exported and tested.
+- AIP distributed worker dispatch: `did:aip:{wallet}:{agent_id}` parsing, a
+  `WorkerRegistry`, and an `AipDispatcher` with a loopback fallback.
+- Observability: `magnesium events`, `magnesium cost`, `magnesium dag`, plus
+  per-purpose and per-model cost reporting.
+- LLM context compaction with a deterministic fallback, wired into the done
+  decision.
+- Critic verification cost is recorded to the ledger (Phase 1 gap closed).
+- Router-driven task triage during planning (the Haiku router validates kinds and
+  sharpens acceptance criteria; resilient with a raw-decomposition fallback).
+- Worker session resume on retry (`--resume`), opt-in via `worker.resumeOnRetry`
+  and gated to environments with a persistent session store.
 
 ## Guardrails
 
@@ -118,8 +143,12 @@ enforcement, and worker invocation. They run fully offline with stubs.
 - Irreversible actions go through a confirmation gate. No secrets in code, the
   ledger, logs, or worktrees.
 
-## Forward seams (not implemented in Phase 1)
+## Forward seams (Phase 3 and beyond)
 
-Distributed worker discovery via `did:aip:{wallet}:{agent_id}`, a Telegram
-control surface, a Postgres or WienerLog ledger, and worker session resume are
-all designed behind interfaces but intentionally unimplemented.
+- A supervisor daemon (`magnesium serve`) so the Telegram surface can pause and
+  resume an in-flight run, not just read its state.
+- A Postgres or WienerLog ledger behind `LedgerRepository`.
+- A real remote AIP resolver (the dispatch seam and DID layer are implemented;
+  resolution is currently loopback).
+- Container-isolated test execution (the worker is containerized; the verifier
+  still runs tests on the host).

@@ -32,6 +32,13 @@ export const WorkerConfigSchema = z.object({
   timeoutMs: z.number().int().positive(),
   permissionMode: z.enum(["default", "acceptEdits", "plan"]),
   allowedTools: z.array(z.string()).min(1),
+  /**
+   * Resume the prior Claude Code session on a verification retry instead of a
+   * clean re-run. Only safe when the session store persists across runs (the
+   * local worker, or a container with a mounted session volume), so it is off
+   * by default to preserve the clean-re-run invariant for ephemeral containers.
+   */
+  resumeOnRetry: z.boolean(),
 });
 
 export const ContainerConfigSchema = z.object({

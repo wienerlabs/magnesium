@@ -23,6 +23,10 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
       "*.ANTHROPIC_API_KEY",
       "headers.authorization",
       "*.authorization",
+      "token",
+      "*.token",
+      "botToken",
+      "*.botToken",
     ],
     censor: "[redacted]",
   };

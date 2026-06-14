@@ -32,7 +32,7 @@ export class CriticVerifier implements Verifier {
       input.workerSummary ?? "(no summary provided)",
     ].join("\n");
 
-    const { value } = await this.client.structured({
+    const { value, usage, costUsd } = await this.client.structured({
       purpose: "critic",
       model: this.config.models.critic,
       system: SYSTEM,
@@ -46,6 +46,8 @@ export class CriticVerifier implements Verifier {
       pass: value.pass,
       reason: value.reasons.join("; "),
       report: `confidence=${value.confidence}`,
+      usage,
+      costUsd,
     };
   }
 }

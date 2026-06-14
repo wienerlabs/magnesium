@@ -113,6 +113,7 @@ export interface LedgerRepository {
 
   // Cost ledger
   recordLlmCall(input: RecordLlmCallInput): LlmCallRow;
+  listLlmCalls(runId: string): LlmCallRow[];
 
   // Checkpoints (compacted orchestrator state)
   saveCheckpoint(runId: string, digest: Record<string, unknown>): CheckpointRow;

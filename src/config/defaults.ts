@@ -50,6 +50,10 @@ export const defaultConfig: MagnesiumConfig = {
       "Bash(grep:*)",
       "Bash(mkdir:*)",
     ],
+    // Off by default: ephemeral containers do not persist the session store, so
+    // a clean re-run is the safe behavior. Enable only with the local worker or
+    // a mounted session volume.
+    resumeOnRetry: false,
   },
   container: {
     enabled: true,

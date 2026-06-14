@@ -22,6 +22,12 @@ export interface GateDeps {
   onEvent?: (event: GateEvent) => void;
   /** Checked before each attempt; returning false stops retrying (budget trip). */
   shouldContinue?: () => boolean;
+  /**
+   * When true, a retry resumes the previous attempt's Claude Code session
+   * instead of running cold. The caller (engine) keeps the worktree across
+   * attempts in this mode. Default (false) is a clean re-run.
+   */
+  resumeOnRetry?: boolean;
 }
 
 export interface GateResult {
@@ -57,7 +63,12 @@ export async function runVerificationGate(
     }
     await deps.prepareWorktree(attempt);
 
-    const task: WorkerTask = priorFailure ? { ...baseTask, priorFailure } : { ...baseTask };
+    const task: WorkerTask = { ...baseTask };
+    if (priorFailure) task.priorFailure = priorFailure;
+    // Carry the prior session id into a retry when session-resume is enabled.
+    if (deps.resumeOnRetry && attempt > 1 && lastWorker?.sessionId) {
+      task.resumeSessionId = lastWorker.sessionId;
+    }
     deps.onEvent?.({ attempt, phase: "worker_started" });
     const worker = await deps.dispatch(task);
     lastWorker = worker;

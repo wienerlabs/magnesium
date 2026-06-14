@@ -13,6 +13,13 @@ export interface WorkerTask {
   worktreePath: string;
   /** Failure report from the previous attempt, appended to the prompt on retry. */
   priorFailure?: string;
+  /**
+   * Claude Code session id to resume on a verification retry (cheaper than a
+   * cold re-run). Only meaningful when the session store persists across runs
+   * (the local worker, or a container with a mounted session volume). Unset for
+   * the default clean re-run.
+   */
+  resumeSessionId?: string;
 }
 
 export interface WorkerResult {

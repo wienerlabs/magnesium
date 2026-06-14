@@ -82,29 +82,41 @@ self-report cost, so the config pricing table is only for direct SDK calls.
 `local-worker.ts` runs `claude -p` directly on the host (still `--bare`) and is the
 fallback when no container runtime is available.
 
-## Commands (Phase 1 target)
+## Commands
 
 ```
 pnpm install
-pnpm build              # tsc
-pnpm test               # vitest
+pnpm build              # tsup -> dist/magnesium.js
+pnpm test               # vitest (offline, stubbed)
 pnpm lint               # eslint
 magnesium run "<goal>"  # decompose, dispatch, verify, integrate
 magnesium resume <id>   # continue after crash
 magnesium status [<id>] # show live DAG
+magnesium events <id>   # event stream (--format plain|json)
+magnesium cost <id>     # cost breakdown per purpose and model
+magnesium dag <id>      # render the task DAG
 ```
 
-## Forward seams (leave clean, do not implement in Phase 1)
+## Phase 2 (shipped)
 
-- Distributed worker discovery via `did:aip:{wallet}:{agent_id}` behind `WorkerAdapter`.
-- Telegram control surface behind `ControlSurface` / `ConfirmationGate`.
+Built and unit-tested offline on top of the Phase 1 slice:
+- Telegram control surface (`src/supervisor/telegram/`) behind `ControlSurface` /
+  `ConfirmationGate`, transport-abstracted; grammY isolated in `grammy-adapter.ts`.
+- AIP dispatch (`src/workers/aip/`): `did:aip:{wallet}:{agent_id}` parse, `WorkerRegistry`,
+  `AipDispatcher` with loopback fallback.
+- Observability (`src/reporting/`): cost / event-stream / dag-render, wired to CLI.
+- LLM compaction (`src/orchestrator/summarize.ts`), router triage (`src/orchestrator/route.ts`),
+  critic-cost recording, worker session resume (`worker.resumeOnRetry`, off by default).
+
+## Forward seams (Phase 3)
+
+- Supervisor daemon (`magnesium serve`) so Telegram can pause/resume an in-flight run.
 - Postgres / WienerLog ledger behind `LedgerRepository`.
-- Worker session resume via persisted `worker_session_id`.
+- A real remote AIP resolver (currently loopback).
+- Container-isolated test execution (the verifier still runs on the host).
 
 ## Repo
 
-`wienerlabs/magnesium`, private. First commit only after Phase 1 is complete and tests
-pass. Create the repo with
-`gh repo create wienerlabs/magnesium --private --source=. --remote=origin`.
+`wienerlabs/magnesium`, private. Canonical repo at `~/magnesium` (Desktop blocks `.git`).
 
 See `docs/ARCHITECTURE.md` for the full design, data model, and failure-mode table.

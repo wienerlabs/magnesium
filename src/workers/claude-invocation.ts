@@ -59,7 +59,7 @@ export function buildClaudeArgs(
   config: MagnesiumConfig,
   workdir: string,
 ): string[] {
-  return [
+  const args = [
     "-p",
     buildWorkerPrompt(task),
     "--bare",
@@ -76,9 +76,14 @@ export function buildClaudeArgs(
     config.models.fallback,
     "--add-dir",
     workdir,
-    "--allowedTools",
-    ...config.worker.allowedTools,
   ];
+  // Resume a prior session on retry when one is carried (session-resume opt-in).
+  if (task.resumeSessionId) {
+    args.push("--resume", task.resumeSessionId);
+  }
+  // --allowedTools is variadic and must stay last.
+  args.push("--allowedTools", ...config.worker.allowedTools);
+  return args;
 }
 
 /**
