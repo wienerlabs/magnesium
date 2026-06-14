@@ -1,5 +1,7 @@
 # Magnesium
 
+<img width="1080" height="1080" alt="029e8ca97faa8ec0ea0e295b86551cd3 (1)" src="https://github.com/user-attachments/assets/56077175-feb9-463d-8ec4-63882afcedd5" />
+
 A self-hosted multi-agent orchestration harness that makes one remote, closed
 model (Claude Opus 4.8) behave like a long-running, self-correcting, multi-agent
 system through scaffolding, not model changes.
