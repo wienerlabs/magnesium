@@ -65,6 +65,9 @@ export const defaultConfig: MagnesiumConfig = {
   verify: {
     testCommand: "pnpm test",
     testTimeoutMs: 300_000,
+    // Off by default: the policy critic adds a model call per verify. Enable for
+    // runs that produce user-facing content rather than pure internal code.
+    policyGate: false,
   },
   paths: {
     ledger: ".magnesium/ledger.db",

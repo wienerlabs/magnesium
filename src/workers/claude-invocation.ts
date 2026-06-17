@@ -1,5 +1,7 @@
 import type { MagnesiumConfig } from "../config/schema";
 import type { TokenUsage } from "../models/types";
+import { renderSkillGuidance, selectSkills } from "./skill-registry";
+import { DEFAULT_TOOL_SPECS, renderToolGuidance } from "./tool-spec";
 import type { WorkerResult, WorkerTask } from "./worker";
 
 export interface ResultEvent {
@@ -38,6 +40,11 @@ export function buildWorkerPrompt(task: WorkerTask): string {
     "- Do not run git. Do not push or force-push.",
     "- Keep changes minimal and focused on the task.",
   ];
+  // Phase 2.5: the three-part tool contract and the task-relevant skill playbooks.
+  const toolGuidance = renderToolGuidance(DEFAULT_TOOL_SPECS);
+  if (toolGuidance) base.push("", toolGuidance);
+  const skillGuidance = renderSkillGuidance(selectSkills(task));
+  if (skillGuidance) base.push("", skillGuidance);
   if (task.priorFailure) {
     base.push(
       "",

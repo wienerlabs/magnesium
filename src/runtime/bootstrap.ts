@@ -8,6 +8,9 @@ import type { ModelClient } from "../models/types";
 import { CodeTestVerifier } from "../verification/code-test-verifier";
 import { CompositeVerifier } from "../verification/composite-verifier";
 import { CriticVerifier } from "../verification/critic-verifier";
+import { PolicyCriticVerifier } from "../verification/policy-critic-verifier";
+import { PolicyGatedVerifier } from "../verification/policy-gated-verifier";
+import type { Verifier } from "../verification/verifier";
 import { createWorker, LocalWorkerPool } from "../workers/pool";
 import { WorkspaceManager } from "../workers/worktree";
 import { MagnesiumEngine } from "./engine";
@@ -42,10 +45,14 @@ export function createEngine(
     opts.client ?? new AnthropicModelClient({ apiKey: requireApiKey(), pricing: config.pricing });
   const workspace = new WorkspaceManager(config.paths.worktrees, logger);
   const pool = new LocalWorkerPool(createWorker(config, logger), config.concurrency, logger);
-  const verifier = new CompositeVerifier(
+  const baseVerifier = new CompositeVerifier(
     new CodeTestVerifier(config.verify.testCommand, config.verify.testTimeoutMs),
     new CriticVerifier(client, config),
   );
+  // Phase 2.5: gate every verdict by the policy critic when enabled (default off).
+  const verifier: Verifier = config.verify.policyGate
+    ? new PolicyGatedVerifier(baseVerifier, new PolicyCriticVerifier(client, config))
+    : baseVerifier;
   const engine = new MagnesiumEngine({ ledger, client, config, logger, workspace, pool, verifier });
   return { engine, ledger, client };
 }

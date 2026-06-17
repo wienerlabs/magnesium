@@ -8,6 +8,11 @@ import { computeReady } from "../orchestrator/dag";
 import { decompose } from "../orchestrator/decompose";
 import { decideDone } from "../orchestrator/done";
 import { integrateRun } from "../orchestrator/integrate";
+import {
+  budgetForTier,
+  estimateComplexity,
+  type ComplexityTier,
+} from "../orchestrator/complexity";
 import { routeTasks } from "../orchestrator/route";
 import { summarizeTasks } from "../orchestrator/summarize";
 import { BudgetManager } from "../supervisor/budget";
@@ -249,11 +254,26 @@ export class MagnesiumEngine {
       );
     }
 
+    // Phase 2.5: scale each task's maxAttempts to its estimated complexity.
+    // Precomputed before the transaction since appendEvent cannot nest inside it.
+    const tierById = new Map<string, ComplexityTier>();
+    for (const t of planned) {
+      tierById.set(
+        t.id,
+        estimateComplexity({
+          description: t.description,
+          acceptanceCriteria: t.acceptanceCriteria,
+          kind: t.kind,
+        }),
+      );
+    }
+
     const idMap = new Map<string, string>();
     this.ledger.transaction(() => {
       for (const t of planned) {
         const id = uuid();
         idMap.set(t.id, id);
+        const tier = tierById.get(t.id) as ComplexityTier;
         this.ledger.createTask({
           id,
           runId: run.id,
@@ -262,7 +282,7 @@ export class MagnesiumEngine {
           description: t.description,
           acceptanceCriteria: t.acceptanceCriteria,
           kind: t.kind,
-          maxAttempts: this.config.worker.maxAttempts,
+          maxAttempts: budgetForTier(tier, this.config).maxAttempts,
           model: t.suggestedModel ?? this.config.models.workerDefault,
         });
       }
@@ -271,6 +291,14 @@ export class MagnesiumEngine {
           this.ledger.addDep(idMap.get(t.id) as string, idMap.get(dep) as string);
         }
       }
+    });
+
+    const distribution = { low: 0, medium: 0, high: 0 };
+    for (const tier of tierById.values()) distribution[tier] += 1;
+    this.ledger.appendEvent({
+      runId: run.id,
+      type: "complexity_budgeted",
+      payload: { distribution },
     });
 
     this.ledger.updateRunStatus(run.id, "running");

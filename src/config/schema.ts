@@ -51,6 +51,13 @@ export const ContainerConfigSchema = z.object({
 export const VerifyConfigSchema = z.object({
   testCommand: z.string().min(1),
   testTimeoutMs: z.number().int().positive(),
+  /**
+   * When true, every task verdict is additionally gated by the policy critic
+   * (child safety, refusal, wellbeing, copyright, evenhandedness). Off by
+   * default: it adds a model call per verify, so enable it for runs whose
+   * workers produce user-facing or content output, not pure internal code.
+   */
+  policyGate: z.boolean(),
 });
 
 export const PathsConfigSchema = z.object({

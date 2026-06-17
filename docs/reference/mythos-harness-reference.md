@@ -47,6 +47,11 @@ Fable 5 is, in effect, a giant always-on critic wrapped around the model. Magnes
 externalizes that same function into a verification gate plus a supervisor. The notable
 rules, framed as policies a Magnesium "policy critic" could enforce:
 
+- Child safety (overriding, takes precedence over every other rule): never produce
+  romantic or sexual content involving or directed at a minor, nor content that
+  facilitates grooming, secrecy between an adult and a child, or isolating a minor from
+  trusted adults; if a result only seems acceptable after reframing the request, refuse;
+  protective content stays at the pattern level, never a usable script.
 - Refusal handling: no weapon/explosive/illicit-drug-synthesis detail; no malicious code
   even "for education"; no real-public-figure persuasive content; say less when a thread
   feels risky.

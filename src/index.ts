@@ -47,3 +47,39 @@ export {
   type AipDid,
   type WorkerRegistry,
 } from "./workers/aip/index";
+
+// Phase 2.5 (Fable-5-derived harness upgrades).
+// Worker tool-spec contract.
+export {
+  renderToolGuidance,
+  validateToolSpecRegistry,
+  DEFAULT_TOOL_SPECS,
+  type ToolSpec,
+} from "./workers/tool-spec";
+// Skills-first worker playbooks.
+export {
+  SkillRegistry,
+  selectSkills,
+  renderSkillGuidance,
+  type SkillSpec,
+} from "./workers/skill-registry";
+// Structured elicitation gate (ask_user_input primitive).
+export {
+  TelegramElicitationGate,
+  parseElicitationCallback,
+  ElicitationRequestSchema,
+  type ElicitationGate,
+  type ElicitationRequest,
+  type ElicitationResponse,
+} from "./supervisor/elicitation";
+// Policy critic (the always-on behavioral critic, externalized).
+export { PolicyCriticVerifier, PolicyVerdictSchema } from "./verification/policy-critic-verifier";
+export { PolicyGatedVerifier } from "./verification/policy-gated-verifier";
+// Complexity-scaled routing.
+export {
+  estimateComplexity,
+  budgetForTier,
+  applyComplexityBudgets,
+  type ComplexityTier,
+  type TaskBudget,
+} from "./orchestrator/complexity";

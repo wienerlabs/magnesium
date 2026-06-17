@@ -13,7 +13,23 @@ function num(value: string | undefined): number | undefined {
  * then validated. Operational values are overridable via env; price rates are
  * intentionally not env-overridable and live in defaults.ts marked VERIFY.
  */
-export function loadConfig(overrides: Partial<MagnesiumConfig> = {}): MagnesiumConfig {
+/**
+ * Per-section partial overrides for loadConfig. Each section may be supplied
+ * partially (e.g. only verify.testCommand); the defaults fill the rest. This keeps
+ * callers from having to specify a whole section when they only tune one field.
+ */
+export interface ConfigOverrides {
+  models?: Partial<MagnesiumConfig["models"]>;
+  budget?: Partial<MagnesiumConfig["budget"]>;
+  worker?: Partial<MagnesiumConfig["worker"]>;
+  container?: Partial<MagnesiumConfig["container"]>;
+  verify?: Partial<MagnesiumConfig["verify"]>;
+  paths?: Partial<MagnesiumConfig["paths"]>;
+  pricing?: MagnesiumConfig["pricing"];
+  concurrency?: number;
+}
+
+export function loadConfig(overrides: ConfigOverrides = {}): MagnesiumConfig {
   const base: MagnesiumConfig = structuredClone(defaultConfig);
 
   const budgetCap = num(process.env.MAGNESIUM_BUDGET_USD);
