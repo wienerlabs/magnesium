@@ -83,3 +83,13 @@ export {
   type ComplexityTier,
   type TaskBudget,
 } from "./orchestrator/complexity";
+
+// Phase 3 (live control plane).
+export {
+  InMemoryRunControl,
+  RunControlRegistry,
+  type RunControl,
+  type RunControlState,
+} from "./runtime/run-control";
+export { EngineRunSupervisor } from "./supervisor/run-supervisor";
+export { ControlPlane, type EngineRunControl, type ControlPlaneOptions } from "./supervisor/control-plane";

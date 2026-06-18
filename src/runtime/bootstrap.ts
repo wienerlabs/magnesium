@@ -14,6 +14,7 @@ import type { Verifier } from "../verification/verifier";
 import { createWorker, LocalWorkerPool } from "../workers/pool";
 import { WorkspaceManager } from "../workers/worktree";
 import { MagnesiumEngine } from "./engine";
+import { RunControlRegistry } from "./run-control";
 
 export function openLedger(config: MagnesiumConfig): LedgerRepository {
   return new SqliteLedger(config.paths.ledger);
@@ -23,6 +24,8 @@ export interface EngineBundle {
   engine: MagnesiumEngine;
   ledger: LedgerRepository;
   client: ModelClient;
+  /** Shared pause/resume registry; pass to a control plane to drive the engine. */
+  control: RunControlRegistry;
 }
 
 export interface CreateEngineOptions {
@@ -53,6 +56,16 @@ export function createEngine(
   const verifier: Verifier = config.verify.policyGate
     ? new PolicyGatedVerifier(baseVerifier, new PolicyCriticVerifier(client, config))
     : baseVerifier;
-  const engine = new MagnesiumEngine({ ledger, client, config, logger, workspace, pool, verifier });
-  return { engine, ledger, client };
+  const control = new RunControlRegistry();
+  const engine = new MagnesiumEngine({
+    ledger,
+    client,
+    config,
+    logger,
+    workspace,
+    pool,
+    verifier,
+    control,
+  });
+  return { engine, ledger, client, control };
 }

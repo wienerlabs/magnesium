@@ -9,6 +9,8 @@ import type { RunStatusView } from "../supervisor/control-surface";
 import { LedgerControlSurface } from "../supervisor/control-surface";
 import { createLogger } from "../logging/logger";
 import { createEngine, openLedger } from "../runtime/bootstrap";
+import { ControlPlane } from "../supervisor/control-plane";
+import { createGrammyTransport } from "../supervisor/telegram/grammy-adapter";
 import type { RunRow } from "../ledger/types";
 import { costReport, formatCostReport } from "../reporting/cost-report";
 import { renderTaskDag } from "../reporting/dag-render";
@@ -190,6 +192,44 @@ function dagCommand(idOrPrefix: string): void {
   }
 }
 
+async function serveCommand(): Promise<void> {
+  const config = loadConfig();
+  const logger = createLogger({ pretty: true });
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) {
+    console.error("serve requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the environment");
+    process.exitCode = 1;
+    return;
+  }
+
+  const { engine, ledger, control } = createEngine(config, logger);
+  const transport = createGrammyTransport({ token, chatId, logger });
+  const plane = new ControlPlane({
+    ledger,
+    transport,
+    registry: control,
+    engine: {
+      resume: async (runId) => {
+        await engine.resume(runId);
+      },
+    },
+    logger,
+  });
+
+  plane.start();
+  await transport.start();
+  console.log("magnesium serve: control plane listening on Telegram (Ctrl-C to stop)");
+
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", () => {
+      plane.stop();
+      void transport.stop().finally(resolve);
+    });
+  });
+  ledger.close();
+}
+
 async function main(): Promise<void> {
   const program = new Command();
   program
@@ -236,6 +276,11 @@ async function main(): Promise<void> {
     .description("Render the task DAG for a run")
     .argument("<runId>", "run id or unique prefix")
     .action(dagCommand);
+
+  program
+    .command("serve")
+    .description("Run the control plane: pause/resume and approve actions over Telegram")
+    .action(serveCommand);
 
   await program.parseAsync(process.argv);
 }

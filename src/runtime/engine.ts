@@ -23,6 +23,7 @@ import type { Verifier } from "../verification/verifier";
 import type { LocalWorkerPool } from "../workers/pool";
 import type { WorkerTask } from "../workers/worker";
 import type { WorkspaceManager } from "../workers/worktree";
+import { InMemoryRunControl, type RunControl, type RunControlRegistry } from "./run-control";
 
 export interface EngineDeps {
   ledger: LedgerRepository;
@@ -32,6 +33,8 @@ export interface EngineDeps {
   workspace: WorkspaceManager;
   pool: LocalWorkerPool;
   verifier: Verifier;
+  /** Optional per-run pause/resume control registry (Phase 3 control plane). */
+  control?: RunControlRegistry;
 }
 
 /**
@@ -47,6 +50,7 @@ export class MagnesiumEngine {
   private readonly workspace: WorkspaceManager;
   private readonly pool: LocalWorkerPool;
   private readonly verifier: Verifier;
+  private readonly controlRegistry?: RunControlRegistry;
   private budgetTripped = false;
 
   constructor(deps: EngineDeps) {
@@ -57,6 +61,7 @@ export class MagnesiumEngine {
     this.workspace = deps.workspace;
     this.pool = deps.pool;
     this.verifier = deps.verifier;
+    this.controlRegistry = deps.control;
   }
 
   createRun(goal: string, workspaceDir: string): RunRow {
@@ -83,6 +88,12 @@ export class MagnesiumEngine {
       this.logger,
     );
     this.budgetTripped = false;
+    // Phase 3: cooperative operator pause. The control is per-run and re-fetched
+    // on each execute/resume call; absent a registry, a fresh control means the
+    // run simply cannot be paused by a supervisor (behavior unchanged).
+    const control = this.controlRegistry?.get(runId) ?? new InMemoryRunControl();
+    control.markRunning();
+    let operatorPaused = false;
 
     const existing = this.ledger.listTasks(runId);
     let baseCommit: string;
@@ -98,6 +109,11 @@ export class MagnesiumEngine {
     const inFlight = new Map<string, Promise<string>>();
     while (true) {
       if (this.budgetTripped || budget.isBreached()) break;
+      // Operator pause: once in-flight workers have drained, stop and pause.
+      if (control.isPauseRequested() && inFlight.size === 0) {
+        operatorPaused = true;
+        break;
+      }
 
       const tasks = this.ledger.listTasks(runId);
       const deps = this.ledger.listDeps(runId);
@@ -108,15 +124,19 @@ export class MagnesiumEngine {
         this.ledger.appendEvent({ runId, taskId: id, type: "task_blocked" });
       }
 
-      for (const id of ready) {
-        if (inFlight.size >= this.config.concurrency) break;
-        if (!budget.canDispatch()) break;
-        if (inFlight.has(id)) continue;
-        const workspaceDir = run.workspaceDir;
-        inFlight.set(
-          id,
-          this.runTask(runId, workspaceDir, id, baseCommit, budget).then(() => id),
-        );
+      // While a pause is pending, stop dispatching new tasks and let in-flight
+      // work drain; the loop top pauses once nothing is running.
+      if (!control.isPauseRequested()) {
+        for (const id of ready) {
+          if (inFlight.size >= this.config.concurrency) break;
+          if (!budget.canDispatch()) break;
+          if (inFlight.has(id)) continue;
+          const workspaceDir = run.workspaceDir;
+          inFlight.set(
+            id,
+            this.runTask(runId, workspaceDir, id, baseCommit, budget).then(() => id),
+          );
+        }
       }
 
       const current = this.ledger.listTasks(runId);
@@ -154,8 +174,11 @@ export class MagnesiumEngine {
 
     await Promise.allSettled([...inFlight.values()]);
     run = this.ledger.getRun(runId) as RunRow;
+    if (operatorPaused) {
+      return this.pauseForReason(runId, run, budget, inFlight, "operator", control);
+    }
     if (this.budgetTripped || budget.isBreached()) {
-      return this.pauseForBudget(runId, run, budget, inFlight);
+      return this.pauseForReason(runId, run, budget, inFlight, "budget", control);
     }
     return this.finishRun(runId, run, baseCommit, budget);
   }
@@ -567,25 +590,32 @@ export class MagnesiumEngine {
     return this.ledger.getRun(runId) as RunRow;
   }
 
-  private async pauseForBudget(
+  private async pauseForReason(
     runId: string,
     run: RunRow,
     budget: BudgetManager,
     inFlight: Map<string, Promise<string>>,
+    reason: "budget" | "operator",
+    control?: RunControl,
   ): Promise<RunRow> {
     this.pool.abortAll();
     await Promise.allSettled([...inFlight.values()]);
     this.ledger.updateRunStatus(runId, "paused");
     this.ledger.appendEvent({
       runId,
-      type: "budget_paused",
-      payload: { spentUsd: budget.spent(), capUsd: run.budgetUsdCap },
+      type: reason === "operator" ? "operator_paused" : "budget_paused",
+      payload: { reason, spentUsd: budget.spent(), capUsd: run.budgetUsdCap },
     });
     this.checkpoint(runId);
-    this.logger.warn(
-      { runId, spentUsd: budget.spent(), capUsd: run.budgetUsdCap },
-      "run paused: budget cap reached. raise MAGNESIUM_BUDGET_USD and resume",
-    );
+    control?.markPaused();
+    if (reason === "budget") {
+      this.logger.warn(
+        { runId, spentUsd: budget.spent(), capUsd: run.budgetUsdCap },
+        "run paused: budget cap reached. raise MAGNESIUM_BUDGET_USD and resume",
+      );
+    } else {
+      this.logger.info({ runId }, "run paused by operator. resume to continue");
+    }
     return this.ledger.getRun(runId) as RunRow;
   }
 

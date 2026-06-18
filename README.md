@@ -72,6 +72,10 @@ pnpm dev resume <runId>
 pnpm dev events <runId> --format plain   # event stream (plain or json)
 pnpm dev cost <runId>                     # cost breakdown per purpose and model
 pnpm dev dag <runId>                      # render the task DAG
+
+# Live control plane: pause/resume and approve actions over Telegram.
+# Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
+pnpm dev serve
 ```
 
 ### End-to-end demo
@@ -143,11 +147,15 @@ Built on the Phase 1 vertical slice, all unit-tested offline:
 - Irreversible actions go through a confirmation gate. No secrets in code, the
   ledger, logs, or worktrees.
 
-## Forward seams (Phase 3 and beyond)
+## Forward seams (Phase 4 and beyond)
 
-- A supervisor daemon (`magnesium serve`) so the Telegram surface can pause and
-  resume an in-flight run, not just read its state.
-- A Postgres or WienerLog ledger behind `LedgerRepository`.
+The supervisor daemon (`magnesium serve`) now hosts a live control plane: a
+control surface can pause and resume an in-flight run, and approve actions or
+gather structured input over chat. Cooperative pause drains in-flight workers
+then checkpoints a resumable paused state. What remains:
+
+- A Postgres or WienerLog ledger behind `LedgerRepository` (needs a running
+  database to test, so deferred).
 - A real remote AIP resolver (the dispatch seam and DID layer are implemented;
   resolution is currently loopback).
 - Container-isolated test execution (the worker is containerized; the verifier
