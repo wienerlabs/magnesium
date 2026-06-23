@@ -1,12 +1,8 @@
 import type { MagnesiumConfig } from "../config/schema";
 import type { Logger } from "../logging/logger";
 import { execCommand } from "../util/exec";
-import {
-  buildClaudeArgs,
-  mapWorkerResult,
-  parseResultEvent,
-  type ResultEvent,
-} from "./claude-invocation";
+import { buildClaudeArgs, mapWorkerResult } from "./claude-invocation";
+import { ClaudeStreamAccumulator, outcomeToResultEvent } from "./stream-parser";
 import type { WorkerAdapter, WorkerResult, WorkerTask } from "./worker";
 
 /**
@@ -25,7 +21,7 @@ export class LocalProcessWorker implements WorkerAdapter {
     this.logger.info({ taskId: task.taskId }, "dispatching local worker (no container isolation)");
     const args = buildClaudeArgs(task, this.config, task.worktreePath);
 
-    let resultEvent: ResultEvent | null = null;
+    const acc = new ClaudeStreamAccumulator();
     try {
       const res = await execCommand("claude", args, {
         cwd: task.worktreePath,
@@ -33,11 +29,11 @@ export class LocalProcessWorker implements WorkerAdapter {
         signal,
         killSignal: "SIGTERM",
         onStdoutLine: (line) => {
-          const event = parseResultEvent(line);
-          if (event) resultEvent = event;
+          acc.processLine(line);
         },
       });
-      return mapWorkerResult(resultEvent, {
+      const event = acc.hasResult() ? outcomeToResultEvent(acc.finalOutcome()) : null;
+      return mapWorkerResult(event, {
         code: res.code,
         stderr: res.stderr,
         timedOut: res.timedOut,

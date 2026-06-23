@@ -2,12 +2,8 @@ import type { MagnesiumConfig } from "../config/schema";
 import type { Logger } from "../logging/logger";
 import { execCommand } from "../util/exec";
 import { shortId } from "../util/ids";
-import {
-  buildContainerInvocation,
-  mapWorkerResult,
-  parseResultEvent,
-  type ResultEvent,
-} from "./claude-invocation";
+import { buildContainerInvocation, mapWorkerResult } from "./claude-invocation";
+import { ClaudeStreamAccumulator, outcomeToResultEvent } from "./stream-parser";
 import type { WorkerAdapter, WorkerResult, WorkerTask } from "./worker";
 
 /**
@@ -32,18 +28,19 @@ export class ContainerWorker implements WorkerAdapter {
     const { command, args } = buildContainerInvocation(task, this.config, name);
     this.logger.info({ taskId: task.taskId, container: name }, "dispatching container worker");
 
-    let resultEvent: ResultEvent | null = null;
+    const acc = new ClaudeStreamAccumulator();
     try {
       const res = await execCommand(command, args, {
         timeoutMs: this.config.worker.timeoutMs,
         signal,
         killSignal: "SIGTERM",
         onStdoutLine: (line) => {
-          const event = parseResultEvent(line);
-          if (event) resultEvent = event;
+          acc.processLine(line);
         },
       });
-      return mapWorkerResult(resultEvent, {
+      // No result event means the process died/timed out: a failure, not success.
+      const event = acc.hasResult() ? outcomeToResultEvent(acc.finalOutcome()) : null;
+      return mapWorkerResult(event, {
         code: res.code,
         stderr: res.stderr,
         timedOut: res.timedOut,

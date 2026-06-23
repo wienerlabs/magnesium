@@ -93,3 +93,26 @@ export {
 } from "./runtime/run-control";
 export { EngineRunSupervisor } from "./supervisor/run-supervisor";
 export { ControlPlane, type EngineRunControl, type ControlPlaneOptions } from "./supervisor/control-plane";
+
+// Phase 4 (live-readiness).
+export {
+  runPreflight,
+  formatPreflight,
+  DefaultProbes,
+  type PreflightReport,
+  type PreflightCheck,
+  type PreflightProbes,
+} from "./runtime/preflight";
+export {
+  parseClaudeStreamLine,
+  ClaudeStreamAccumulator,
+  outcomeToResultEvent,
+  type StreamEvent,
+  type StreamOutcome,
+} from "./workers/stream-parser";
+export {
+  createHttpAipResolver,
+  HttpRemoteWorker,
+  type FetchLike,
+  type HttpResolverOptions,
+} from "./workers/aip/http-resolver";

@@ -52,6 +52,7 @@ death. `magnesium resume <id>` continues after a `kill -9`.
 pnpm install
 cp .env.example .env   # then set ANTHROPIC_API_KEY
 pnpm worker:build      # builds the worker container image (needs OrbStack/Docker running)
+pnpm dev doctor        # preflight: checks API key, container runtime, image, git
 ```
 
 ## Usage

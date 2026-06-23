@@ -9,6 +9,7 @@ import type { RunStatusView } from "../supervisor/control-surface";
 import { LedgerControlSurface } from "../supervisor/control-surface";
 import { createLogger } from "../logging/logger";
 import { createEngine, openLedger } from "../runtime/bootstrap";
+import { formatPreflight, runPreflight } from "../runtime/preflight";
 import { ControlPlane } from "../supervisor/control-plane";
 import { createGrammyTransport } from "../supervisor/telegram/grammy-adapter";
 import type { RunRow } from "../ledger/types";
@@ -192,6 +193,13 @@ function dagCommand(idOrPrefix: string): void {
   }
 }
 
+async function doctorCommand(): Promise<void> {
+  const config = loadConfig();
+  const report = await runPreflight(config);
+  console.log(formatPreflight(report));
+  process.exitCode = report.ok ? 0 : 1;
+}
+
 async function serveCommand(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger({ pretty: true });
@@ -222,10 +230,12 @@ async function serveCommand(): Promise<void> {
   console.log("magnesium serve: control plane listening on Telegram (Ctrl-C to stop)");
 
   await new Promise<void>((resolve) => {
-    process.once("SIGINT", () => {
+    const shutdown = () => {
       plane.stop();
       void transport.stop().finally(resolve);
-    });
+    };
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
   });
   ledger.close();
 }
@@ -281,6 +291,11 @@ async function main(): Promise<void> {
     .command("serve")
     .description("Run the control plane: pause/resume and approve actions over Telegram")
     .action(serveCommand);
+
+  program
+    .command("doctor")
+    .description("Preflight checks before a run (API key, container runtime, image, git)")
+    .action(doctorCommand);
 
   await program.parseAsync(process.argv);
 }
